@@ -46,8 +46,9 @@ class AgentLoop:
         cron_service: "CronService | None" = None,
         restrict_to_workspace: bool = False,
         session_manager: SessionManager | None = None,
+        ethereum_config: "EthereumConfig | None" = None,
     ):
-        from nanobot.config.schema import ExecToolConfig
+        from nanobot.config.schema import ExecToolConfig, EthereumConfig
         from nanobot.cron.service import CronService
         self.bus = bus
         self.provider = provider
@@ -58,6 +59,7 @@ class AgentLoop:
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
+        self.ethereum_config = ethereum_config
         
         self.context = ContextBuilder(workspace)
         self.sessions = session_manager or SessionManager(workspace)
@@ -106,6 +108,14 @@ class AgentLoop:
         # Cron tool (for scheduling)
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
+
+        # Ethereum tool
+        if self.ethereum_config and self.ethereum_config.enabled:
+            try:
+                from nanobot.agent.tools.ethereum import EthereumTool
+                self.tools.register(EthereumTool(self.ethereum_config))
+            except ImportError:
+                logger.warning("Ethereum tool requires 'web3' package. Install with: pip install web3")
     
     async def run(self) -> None:
         """Run the agent loop, processing messages from the bus."""

@@ -360,6 +360,7 @@ def gateway(
         cron_service=cron,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         session_manager=session_manager,
+        ethereum_config=config.tools.ethereum,
     )
     
     # Set cron callback (needs agent)
@@ -462,6 +463,7 @@ def agent(
         brave_api_key=config.tools.web.search.api_key or None,
         exec_config=config.tools.exec,
         restrict_to_workspace=config.tools.restrict_to_workspace,
+        ethereum_config=config.tools.ethereum,
     )
     
     # Show spinner when logs are off (no output to miss); skip when logs are on
@@ -814,6 +816,180 @@ def cron_run(
         console.print(f"[green]✓[/green] Job executed")
     else:
         console.print(f"[red]Failed to run job {job_id}[/red]")
+
+
+# ============================================================================
+# Ethereum Commands
+# ============================================================================
+
+ethereum_app = typer.Typer(help="Manage Ethereum configuration")
+app.add_typer(ethereum_app, name="ethereum")
+
+
+@ethereum_app.command("init")
+def ethereum_init():
+    """Initialize Ethereum account and network configuration."""
+    import getpass
+    from nanobot.config.loader import load_config, save_config
+
+    config = load_config()
+
+    console.print("[bold]Ethereum Account Setup[/bold]")
+    console.print("─" * 30)
+
+    # Seed phrase input
+    seed = getpass.getpass("Enter seed phrase (12/24 words): ").strip()
+    if not seed:
+        console.print("[red]Error: seed phrase is required[/red]")
+        raise typer.Exit(1)
+
+    words = seed.split()
+    if len(words) not in (12, 24):
+        console.print(f"[red]Error: expected 12 or 24 words, got {len(words)}[/red]")
+        raise typer.Exit(1)
+
+    # Password for encryption
+    password = getpass.getpass("Enter password to encrypt seed: ")
+    confirm = getpass.getpass("Confirm password: ")
+    if password != confirm:
+        console.print("[red]Error: passwords do not match[/red]")
+        raise typer.Exit(1)
+    if len(password) < 4:
+        console.print("[red]Error: password too short (min 4 chars)[/red]")
+        raise typer.Exit(1)
+
+    # Encrypt and save
+    try:
+        from nanobot.agent.tools.ethereum import encrypt_seed
+        seed_path = Path(config.tools.ethereum.seed_file).expanduser()
+        address = encrypt_seed(seed, password, seed_path)
+        console.print(f"[green]✓[/green] Seed encrypted and saved to {seed_path}")
+        console.print(f"[green]✓[/green] Derived address: {address}")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
+
+    # Network selection
+    console.print()
+    console.print("[bold]Network Setup[/bold]")
+    console.print("─" * 30)
+    console.print("  1. Localhost (Hardhat/Anvil) - http://127.0.0.1:8545")
+    console.print("  2. Sepolia Testnet")
+    console.print("  3. Ethereum Mainnet")
+    console.print("  4. Custom RPC URL")
+
+    choice = typer.prompt("Select network", default="1")
+
+    networks = {
+        "1": ("http://127.0.0.1:8545", 31337, "Localhost"),
+        "2": ("https://rpc.sepolia.org", 11155111, "Sepolia"),
+        "3": ("https://eth.llamarpc.com", 1, "Ethereum Mainnet"),
+    }
+
+    if choice in networks:
+        rpc_url, chain_id, net_name = networks[choice]
+    elif choice == "4":
+        rpc_url = typer.prompt("RPC URL")
+        chain_id = int(typer.prompt("Chain ID"))
+        net_name = "Custom"
+    else:
+        console.print("[red]Invalid choice[/red]")
+        raise typer.Exit(1)
+
+    console.print(f"[green]✓[/green] Network: {net_name} (chain ID: {chain_id})")
+    console.print(f"[green]✓[/green] RPC URL: {rpc_url}")
+
+    # Save to config
+    config.tools.ethereum.enabled = True
+    config.tools.ethereum.rpc_url = rpc_url
+    config.tools.ethereum.chain_id = chain_id
+    save_config(config)
+
+    console.print()
+    console.print("[green]✓[/green] Ethereum config saved to ~/.nanobot/config.json")
+    console.print("[dim]Run 'nanobot ethereum status' to verify connection[/dim]")
+
+
+@ethereum_app.command("status")
+def ethereum_status():
+    """Show Ethereum connection status and account info."""
+    from nanobot.config.loader import load_config
+
+    config = load_config()
+    eth = config.tools.ethereum
+
+    console.print("[bold]Ethereum Status[/bold]")
+    console.print("─" * 30)
+    console.print(f"Enabled: {'[green]✓[/green]' if eth.enabled else '[red]✗[/red]'}")
+    console.print(f"RPC URL: {eth.rpc_url}")
+    console.print(f"Chain ID: {eth.chain_id}")
+    console.print(f"Account Index: {eth.account_index}")
+
+    if not eth.enabled:
+        console.print("\n[dim]Run 'nanobot ethereum init' to set up[/dim]")
+        return
+
+    # Check connection
+    try:
+        from web3 import Web3
+        w3 = Web3(Web3.HTTPProvider(eth.rpc_url))
+        connected = w3.is_connected()
+        console.print(f"Connected: {'[green]✓[/green]' if connected else '[red]✗[/red]'}")
+
+        if connected:
+            block = w3.eth.block_number
+            console.print(f"Latest Block: {block}")
+
+            # Check account
+            import os
+            from nanobot.agent.tools.ethereum import _derive_account, decrypt_seed
+
+            mnemonic = os.environ.get("ETH_MNEMONIC")
+            if not mnemonic:
+                seed_path = Path(eth.seed_file).expanduser()
+                password = os.environ.get("ETH_SEED_PASSWORD")
+                if seed_path.exists() and password:
+                    try:
+                        mnemonic = decrypt_seed(password, seed_path)
+                    except Exception:
+                        pass
+
+            if mnemonic:
+                acct = _derive_account(mnemonic, eth.account_index)
+                balance_wei = w3.eth.get_balance(acct.address)
+                balance_eth = Web3.from_wei(balance_wei, "ether")
+                console.print(f"Address: {acct.address}")
+                console.print(f"Balance: {balance_eth} ETH")
+            else:
+                console.print("Account: [yellow]read-only (no seed available)[/yellow]")
+
+    except ImportError:
+        console.print("[red]Error: web3 package not installed. Run: pip install web3[/red]")
+    except Exception as e:
+        console.print(f"[red]Connection error: {e}[/red]")
+
+
+@ethereum_app.command("networks")
+def ethereum_networks():
+    """Show configured network info."""
+    from nanobot.config.loader import load_config
+
+    config = load_config()
+    eth = config.tools.ethereum
+
+    table = Table(title="Ethereum Network")
+    table.add_column("Setting", style="cyan")
+    table.add_column("Value")
+
+    table.add_row("Enabled", "[green]✓[/green]" if eth.enabled else "[red]✗[/red]")
+    table.add_row("RPC URL", eth.rpc_url)
+    table.add_row("Chain ID", str(eth.chain_id))
+    table.add_row("Gas Limit", str(eth.gas_limit))
+    table.add_row("Confirmations", str(eth.confirmations))
+    table.add_row("Seed File", eth.seed_file)
+    table.add_row("ABIs Dir", eth.abis_dir)
+
+    console.print(table)
 
 
 # ============================================================================

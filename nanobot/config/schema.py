@@ -175,10 +175,23 @@ class ExecToolConfig(BaseModel):
     timeout: int = 60
 
 
+class EthereumConfig(BaseModel):
+    """Ethereum tool configuration."""
+    enabled: bool = False
+    rpc_url: str = "http://127.0.0.1:8545"
+    chain_id: int = 31337
+    account_index: int = 0
+    seed_file: str = "~/.nanobot/ethereum/seed.enc"
+    abis_dir: str = "~/.nanobot/workspace/ethereum/abis"
+    gas_limit: int = 300000
+    confirmations: int = 1
+
+
 class ToolsConfig(BaseModel):
     """Tools configuration."""
     web: WebToolsConfig = Field(default_factory=WebToolsConfig)
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
+    ethereum: EthereumConfig = Field(default_factory=EthereumConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
 
 
