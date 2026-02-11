@@ -179,7 +179,7 @@ class EthereumConfig(BaseModel):
     """Ethereum tool configuration."""
     enabled: bool = False
     rpc_url: str = "http://127.0.0.1:8545"
-    chain_id: int = 31337
+    chain_id: int = 1337
     account_index: int = 0
     seed_file: str = "~/.nanobot/ethereum/seed.enc"
     abis_dir: str = "~/.nanobot/workspace/ethereum/abis"

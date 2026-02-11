@@ -838,7 +838,7 @@ def ethereum_init():
     console.print("─" * 30)
 
     # Seed phrase input
-    seed = getpass.getpass("Enter seed phrase (12/24 words): ").strip()
+    seed = input("Enter seed phrase (12/24 words): ").strip()
     if not seed:
         console.print("[red]Error: seed phrase is required[/red]")
         raise typer.Exit(1)
