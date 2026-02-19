@@ -97,16 +97,17 @@ You are nanobot, a helpful AI assistant. You have access to tools that allow you
 
 ## Workspace
 Your workspace is at: {workspace_path}
-- Memory files: {workspace_path}/memory/MEMORY.md
-- Daily notes: {workspace_path}/memory/YYYY-MM-DD.md
+- Long-term memory: {workspace_path}/memory/MEMORY.md
+- History log: {workspace_path}/memory/HISTORY.md (grep-searchable)
 - Custom skills: {workspace_path}/skills/{{skill-name}}/SKILL.md
 
 IMPORTANT: When responding to direct questions or conversations, reply directly with your text response.
 Only use the 'message' tool when you need to send a message to a specific chat channel (like WhatsApp).
 For normal conversation, just respond with text - do not call the message tool.
 
-Always be helpful, accurate, and concise. When using tools, think step by step: what you know, what you need, and why you chose this tool.
-When remembering something, write to {workspace_path}/memory/MEMORY.md"""
+Always be helpful, accurate, and concise. Before calling tools, briefly tell the user what you're about to do (one short sentence in the user's language).
+When remembering something important, write to {workspace_path}/memory/MEMORY.md
+To recall past events, grep {workspace_path}/memory/HISTORY.md"""
     
     def _load_bootstrap_files(self) -> str:
         """Load all bootstrap files from workspace."""
@@ -224,14 +225,18 @@ When remembering something, write to {workspace_path}/memory/MEMORY.md"""
         Returns:
             Updated message list.
         """
-        msg: dict[str, Any] = {"role": "assistant", "content": content or ""}
-        
+        msg: dict[str, Any] = {"role": "assistant"}
+
+        # Omit empty content — some backends reject empty text blocks
+        if content:
+            msg["content"] = content
+
         if tool_calls:
             msg["tool_calls"] = tool_calls
-        
-        # Thinking models reject history without this
+
+        # Include reasoning content when provided (required by some thinking models)
         if reasoning_content:
             msg["reasoning_content"] = reasoning_content
-        
+
         messages.append(msg)
         return messages
